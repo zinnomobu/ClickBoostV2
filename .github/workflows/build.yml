@@ -18,14 +18,19 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Download Gradle Wrapper JAR
+      - name: Set up Gradle Wrapper
         run: |
           mkdir -p gradle/wrapper
           curl -L "https://github.com/gradle/gradle/raw/v8.6.0/gradle/wrapper/gradle-wrapper.jar" \
             -o gradle/wrapper/gradle-wrapper.jar
-
-      - name: Make gradlew executable
-        run: chmod +x gradlew
+          cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.6-bin.zip
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          EOF
+          chmod +x gradlew
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon
@@ -34,4 +39,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ClickBoost-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk          path: app/build/outputs/apk/debug/app-debug.apk
