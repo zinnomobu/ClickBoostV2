@@ -1,13 +1,10 @@
 name: Build ClickBoost APK
-
 on:
   push:
     branches: [ main ]
-
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -18,9 +15,396 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Gradle Wrapper
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Create full project
         run: |
+          mkdir -p app/src/main/java/com/clickboost
+          mkdir -p app/src/main/res/{layout,drawable,values,xml}
           mkdir -p gradle/wrapper
+
+          # settings.gradle
+          cat > settings.gradle << 'EOF'
+          pluginManagement {
+            repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+            repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+            repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "ClickBoost"
+          include ':app'
+          EOF
+
+          # root build.gradle
+          cat > build.gradle << 'EOF'
+          plugins {
+            id 'com.android.application' version '8.3.2' apply false
+          }
+          EOF
+
+          # gradle.properties
+          cat > gradle.properties << 'EOF'
+          android.useAndroidX=true
+          android.enableJetifier=true
+          EOF
+
+          # app/build.gradle
+          cat > app/build.gradle << 'EOF'
+          plugins { id 'com.android.application' }
+          android {
+            namespace 'com.clickboost'
+            compileSdk 34
+            defaultConfig {
+              applicationId "com.clickboost"
+              minSdk 29
+              targetSdk 34
+              versionCode 1
+              versionName "1.0"
+            }
+            compileOptions {
+              sourceCompatibility JavaVersion.VERSION_11
+              targetCompatibility JavaVersion.VERSION_11
+            }
+          }
+          dependencies {
+            implementation 'androidx.appcompat:appcompat:1.7.0'
+            implementation 'com.google.android.material:material:1.12.0'
+            implementation 'androidx.core:core:1.13.1'
+          }
+          EOF
+
+          # AndroidManifest
+          cat > app/src/main/AndroidManifest.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              package="com.clickboost">
+            <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+            <uses-permission android:name="android.permission.VIBRATE"/>
+            <application
+                android:allowBackup="true"
+                android:label="ClickBoost"
+                android:theme="@style/AppTheme">
+              <activity android:name=".MainActivity" android:exported="true">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN"/>
+                  <category android:name="android.intent.category.LAUNCHER"/>
+                </intent-filter>
+              </activity>
+              <service android:name=".FloatingService" android:exported="false"
+                  android:foregroundServiceType="specialUse"/>
+              <service android:name=".ClickAccessibilityService" android:exported="true"
+                  android:label="ClickBoost"
+                  android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+                <intent-filter>
+                  <action android:name="android.accessibilityservice.AccessibilityService"/>
+                </intent-filter>
+                <meta-data android:name="android.accessibilityservice"
+                    android:resource="@xml/accessibility_service_config"/>
+              </service>
+            </application>
+          </manifest>
+          EOF
+
+          # Strings
+          cat > app/src/main/res/values/strings.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+            <string name="app_name">ClickBoost</string>
+            <string name="accessibility_description">ClickBoost injects extra taps when you press the floating button.</string>
+          </resources>
+          EOF
+
+          # Styles
+          cat > app/src/main/res/values/styles.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+            <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
+              <item name="colorPrimary">#FF6B35</item>
+              <item name="colorPrimaryDark">#CC3300</item>
+              <item name="colorAccent">#FF6B35</item>
+            </style>
+          </resources>
+          EOF
+
+          # Accessibility config
+          cat > app/src/main/res/xml/accessibility_service_config.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:description="@string/accessibility_description"
+              android:accessibilityEventTypes="typeAllMask"
+              android:accessibilityFeedbackType="feedbackGeneric"
+              android:notificationTimeout="100"
+              android:canPerformGestures="true"/>
+          EOF
+
+          # Drawable
+          cat > app/src/main/res/drawable/btn_overlay.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+            <solid android:color="#FF6B35"/>
+            <size android:width="72dp" android:height="72dp"/>
+          </shape>
+          EOF
+
+          # Main layout
+          cat > app/src/main/res/layout/activity_main.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent" android:layout_height="match_parent"
+              android:background="#0F0F1A" android:padding="20dp">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:gravity="center_horizontal">
+              <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                  android:text="ClickBoost" android:textColor="#FF6B35"
+                  android:textSize="36sp" android:textStyle="bold" android:layout_marginTop="24dp"/>
+              <TextView android:id="@+id/tvOverlayStatus" android:layout_width="match_parent"
+                  android:layout_height="wrap_content" android:text="Overlay: Checking..."
+                  android:textColor="#CCCCCC" android:textSize="14sp" android:layout_marginTop="20dp"/>
+              <TextView android:id="@+id/tvAccessibilityStatus" android:layout_width="match_parent"
+                  android:layout_height="wrap_content" android:text="Accessibility: Checking..."
+                  android:textColor="#CCCCCC" android:textSize="14sp"/>
+              <TextView android:id="@+id/lblMultiplier" android:layout_width="match_parent"
+                  android:layout_height="wrap_content" android:text="Multiplier: 5x"
+                  android:textColor="#FFFFFF" android:textSize="18sp" android:layout_marginTop="20dp"/>
+              <SeekBar android:id="@+id/seekMultiplier" android:layout_width="match_parent"
+                  android:layout_height="wrap_content" android:max="19" android:progress="4"/>
+              <TextView android:id="@+id/lblCPS" android:layout_width="match_parent"
+                  android:layout_height="wrap_content" android:text="Speed: 10 clicks/sec"
+                  android:textColor="#FFFFFF" android:textSize="18sp" android:layout_marginTop="16dp"/>
+              <SeekBar android:id="@+id/seekCPS" android:layout_width="match_parent"
+                  android:layout_height="wrap_content" android:max="29" android:progress="9"/>
+              <Button android:id="@+id/btnLaunch" android:layout_width="match_parent"
+                  android:layout_height="56dp" android:text="Launch Overlay"
+                  android:textSize="18sp" android:backgroundTint="#FF6B35"
+                  android:textColor="#FFFFFF" android:layout_marginTop="24dp"/>
+            </LinearLayout>
+          </ScrollView>
+          EOF
+
+          # Floating layout
+          cat > app/src/main/res/layout/floating_layout.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="wrap_content" android:layout_height="wrap_content">
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:orientation="vertical" android:gravity="center" android:padding="4dp">
+              <TextView android:id="@+id/btnClose" android:layout_width="22dp"
+                  android:layout_height="22dp" android:text="X" android:textColor="#FFFFFF"
+                  android:textSize="11sp" android:gravity="center"
+                  android:background="#CC333333" android:layout_gravity="end"
+                  android:clickable="true" android:focusable="true"/>
+              <FrameLayout android:id="@+id/btnClickTarget" android:layout_width="72dp"
+                  android:layout_height="72dp" android:background="@drawable/btn_overlay"
+                  android:clickable="true" android:focusable="true">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+                    android:orientation="vertical" android:gravity="center">
+                  <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                      android:text="BOOST" android:textColor="#FFFFFF" android:textSize="12sp"
+                      android:textStyle="bold" android:gravity="center"/>
+                  <TextView android:id="@+id/tvBadge" android:layout_width="wrap_content"
+                      android:layout_height="wrap_content" android:text="5x 10cps"
+                      android:textColor="#FFFFFF" android:textSize="9sp" android:gravity="center"/>
+                </LinearLayout>
+              </FrameLayout>
+            </LinearLayout>
+          </FrameLayout>
+          EOF
+
+          # MainActivity.java
+          cat > app/src/main/java/com/clickboost/MainActivity.java << 'EOF'
+          package com.clickboost;
+          import android.accessibilityservice.AccessibilityServiceInfo;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.provider.Settings;
+          import android.view.accessibility.AccessibilityManager;
+          import android.widget.Button;
+          import android.widget.SeekBar;
+          import android.widget.TextView;
+          import android.widget.Toast;
+          import androidx.appcompat.app.AppCompatActivity;
+          import java.util.List;
+          public class MainActivity extends AppCompatActivity {
+            SharedPreferences prefs;
+            @Override
+            protected void onCreate(Bundle savedInstanceState) {
+              super.onCreate(savedInstanceState);
+              setContentView(R.layout.activity_main);
+              prefs = getSharedPreferences("clickboost", MODE_PRIVATE);
+              SeekBar seekMul = findViewById(R.id.seekMultiplier);
+              TextView lblMul = findViewById(R.id.lblMultiplier);
+              seekMul.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                public void onProgressChanged(SeekBar s, int p, boolean f) {
+                  int v = p + 1; lblMul.setText("Multiplier: " + v + "x");
+                  prefs.edit().putInt("multiplier", v).apply();
+                }
+                public void onStartTrackingTouch(SeekBar s) {}
+                public void onStopTrackingTouch(SeekBar s) {}
+              });
+              SeekBar seekCPS = findViewById(R.id.seekCPS);
+              TextView lblCPS = findViewById(R.id.lblCPS);
+              seekCPS.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                public void onProgressChanged(SeekBar s, int p, boolean f) {
+                  int v = p + 1; lblCPS.setText("Speed: " + v + " clicks/sec");
+                  prefs.edit().putInt("cps", v).apply();
+                }
+                public void onStartTrackingTouch(SeekBar s) {}
+                public void onStopTrackingTouch(SeekBar s) {}
+              });
+              Button btn = findViewById(R.id.btnLaunch);
+              btn.setOnClickListener(v -> {
+                if (!Settings.canDrawOverlays(this)) {
+                  startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName())));
+                  return;
+                }
+                AccessibilityManager am = (AccessibilityManager) getSystemService(Context.ACCESSIBILITY_SERVICE);
+                List<AccessibilityServiceInfo> list = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK);
+                boolean enabled = false;
+                for (AccessibilityServiceInfo i : list) { if (i.getId().contains(getPackageName())) { enabled = true; break; } }
+                if (!enabled) {
+                  Toast.makeText(this, "Enable ClickBoost in Accessibility Settings", Toast.LENGTH_LONG).show();
+                  startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                  return;
+                }
+                Intent i = new Intent(this, FloatingService.class);
+                i.putExtra("multiplier", prefs.getInt("multiplier", 5));
+                i.putExtra("cps", prefs.getInt("cps", 10));
+                startForegroundService(i);
+                finish();
+              });
+            }
+            @Override protected void onResume() {
+              super.onResume();
+              TextView ov = findViewById(R.id.tvOverlayStatus);
+              TextView ac = findViewById(R.id.tvAccessibilityStatus);
+              ov.setText("Overlay: " + (Settings.canDrawOverlays(this) ? "Granted" : "NOT granted - tap Launch"));
+              AccessibilityManager am = (AccessibilityManager) getSystemService(Context.ACCESSIBILITY_SERVICE);
+              List<AccessibilityServiceInfo> list = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK);
+              boolean enabled = false;
+              for (AccessibilityServiceInfo i : list) { if (i.getId().contains(getPackageName())) { enabled = true; break; } }
+              ac.setText("Accessibility: " + (enabled ? "Enabled" : "NOT enabled - tap Launch"));
+            }
+          }
+          EOF
+
+          # FloatingService.java
+          cat > app/src/main/java/com/clickboost/FloatingService.java << 'EOF'
+          package com.clickboost;
+          import android.app.*;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.graphics.PixelFormat;
+          import android.os.*;
+          import android.util.DisplayMetrics;
+          import android.view.*;
+          import android.widget.TextView;
+          import androidx.core.app.NotificationCompat;
+          public class FloatingService extends Service {
+            private static final String CH = "cb_ch";
+            private WindowManager wm;
+            private View fv;
+            private WindowManager.LayoutParams lp;
+            private int multiplier = 5, cps = 10;
+            private int ix, iy; private float itx, ity; private long tdt; private boolean drag;
+            @Override public void onCreate() {
+              super.onCreate();
+              NotificationChannel ch = new NotificationChannel(CH, "ClickBoost", NotificationManager.IMPORTANCE_LOW);
+              ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).createNotificationChannel(ch);
+              startForeground(42, new NotificationCompat.Builder(this, CH)
+                .setContentTitle("ClickBoost Active").setContentText("Tap the floating button to multiply clicks")
+                .setSmallIcon(android.R.drawable.ic_menu_compass).setOngoing(true).build());
+              wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+              SharedPreferences p = getSharedPreferences("clickboost", MODE_PRIVATE);
+              multiplier = p.getInt("multiplier", 5); cps = p.getInt("cps", 10);
+              showOverlay();
+            }
+            private void showOverlay() {
+              fv = LayoutInflater.from(this).inflate(R.layout.floating_layout, null);
+              lp = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT);
+              lp.gravity = Gravity.TOP | Gravity.START;
+              DisplayMetrics dm = getResources().getDisplayMetrics();
+              lp.x = dm.widthPixels - 220; lp.y = dm.heightPixels / 2;
+              wm.addView(fv, lp);
+              updateBadge();
+              View target = fv.findViewById(R.id.btnClickTarget);
+              target.setOnTouchListener((v, e) -> {
+                switch(e.getAction()) {
+                  case MotionEvent.ACTION_DOWN:
+                    ix=lp.x; iy=lp.y; itx=e.getRawX(); ity=e.getRawY(); tdt=System.currentTimeMillis(); drag=false; return true;
+                  case MotionEvent.ACTION_MOVE:
+                    float dx=e.getRawX()-itx, dy=e.getRawY()-ity;
+                    if (!drag && (Math.abs(dx)>12||Math.abs(dy)>12)) drag=true;
+                    if (drag) { lp.x=ix+(int)dx; lp.y=iy+(int)dy; wm.updateViewLayout(fv,lp); }
+                    return true;
+                  case MotionEvent.ACTION_UP:
+                    if (!drag && System.currentTimeMillis()-tdt<300) {
+                      Vibrator vib=(Vibrator)getSystemService(VIBRATOR_SERVICE);
+                      if (vib!=null&&vib.hasVibrator()) vib.vibrate(VibrationEffect.createOneShot(30,VibrationEffect.DEFAULT_AMPLITUDE));
+                      ClickAccessibilityService svc=ClickAccessibilityService.getInstance();
+                      if (svc!=null) { int[] loc=new int[2]; v.getLocationOnScreen(loc); svc.performMultiClick(loc[0]+v.getWidth()/2f, loc[1]+v.getHeight()/2f, multiplier-1, cps); }
+                      v.animate().scaleX(0.85f).scaleY(0.85f).setDuration(60).withEndAction(()->v.animate().scaleX(1f).scaleY(1f).setDuration(60).start()).start();
+                    }
+                    return true;
+                }
+                return false;
+              });
+              fv.findViewById(R.id.btnClose).setOnClickListener(v->stopSelf());
+            }
+            private void updateBadge() { if(fv==null) return; TextView b=fv.findViewById(R.id.tvBadge); if(b!=null) b.setText(multiplier+"x "+cps+"cps"); }
+            @Override public int onStartCommand(Intent i, int f, int s) {
+              if(i!=null&&"UPDATE_SETTINGS".equals(i.getAction())) { multiplier=i.getIntExtra("multiplier",multiplier); cps=i.getIntExtra("cps",cps); updateBadge(); }
+              return START_STICKY;
+            }
+            @Override public void onDestroy() { if(fv!=null) wm.removeView(fv); super.onDestroy(); }
+            @Override public IBinder onBind(Intent i) { return null; }
+          }
+          EOF
+
+          # ClickAccessibilityService.java
+          cat > app/src/main/java/com/clickboost/ClickAccessibilityService.java << 'EOF'
+          package com.clickboost;
+          import android.accessibilityservice.AccessibilityService;
+          import android.accessibilityservice.GestureDescription;
+          import android.graphics.Path;
+          import android.os.Handler;
+          import android.os.Looper;
+          import android.view.accessibility.AccessibilityEvent;
+          public class ClickAccessibilityService extends AccessibilityService {
+            private static ClickAccessibilityService instance;
+            private final Handler handler = new Handler(Looper.getMainLooper());
+            public static ClickAccessibilityService getInstance() { return instance; }
+            @Override public void onServiceConnected() { instance = this; }
+            @Override public void onDestroy() { instance = null; super.onDestroy(); }
+            public void performMultiClick(float x, float y, int extra, int cps) {
+              if (extra <= 0) return;
+              long delay = Math.max(16L, 1000L / cps);
+              for (int i = 0; i < extra; i++) {
+                final long t = (i+1)*delay;
+                handler.postDelayed(() -> {
+                  Path p = new Path(); p.moveTo(x, y);
+                  GestureDescription g = new GestureDescription.Builder()
+                    .addStroke(new GestureDescription.StrokeDescription(p, 0, 50)).build();
+                  dispatchGesture(g, null, null);
+                }, t);
+              }
+            }
+            @Override public void onAccessibilityEvent(AccessibilityEvent e) {}
+            @Override public void onInterrupt() { handler.removeCallbacksAndMessages(null); }
+          }
+          EOF
+
+          # Gradle wrapper
           curl -L "https://github.com/gradle/gradle/raw/v8.6.0/gradle/wrapper/gradle-wrapper.jar" \
             -o gradle/wrapper/gradle-wrapper.jar
           cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
